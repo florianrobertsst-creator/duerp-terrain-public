@@ -1,0 +1,28 @@
+:root { --bleu: #125c8c; --gris: #5b6770; --fond: #f3f6f8; --rouge: #c00000; --vert: #1b7a3a; }
+* { box-sizing: border-box; }
+body { margin: 0; font: 16px/1.4 system-ui, sans-serif; background: var(--fond); color: #1c2a33; padding-bottom: env(safe-area-inset-bottom); }
+header { position: sticky; top: 0; z-index: 5; background: var(--bleu); color: #fff; display: flex; align-items: center; gap: 8px; padding: 12px 14px; padding-top: calc(12px + env(safe-area-inset-top)); }
+header h1 { margin: 0; font-size: 18px; font-weight: 600; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#retour { background: none; border: 0; color: #fff; font-size: 30px; line-height: 1; padding: 0 8px 4px; }
+main { padding: 14px; max-width: 720px; margin: 0 auto; }
+.carte { background: #fff; border-radius: 12px; padding: 14px; margin-bottom: 12px; box-shadow: 0 1px 3px #0002; }
+.carte.cliquable { cursor: pointer; }
+.doux { color: var(--gris); font-size: 14px; }
+button, .bouton { font: inherit; border-radius: 10px; border: 1px solid var(--bleu); background: #fff; color: var(--bleu); padding: 12px 16px; min-height: 48px; }
+button.principal, .bouton.principal { background: var(--bleu); color: #fff; }
+button.danger { color: var(--rouge); border-color: var(--rouge); }
+button.large { width: 100%; margin-bottom: 10px; }
+.ligne { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.espace { flex: 1; }
+label { display: block; font-weight: 600; margin: 12px 0 4px; }
+input, select, textarea { font: inherit; width: 100%; padding: 12px; border: 1px solid #b8c4cc; border-radius: 10px; background: #fff; }
+textarea { min-height: 150px; resize: vertical; }
+.photos { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
+.photo { position: relative; width: 96px; height: 96px; }
+.photo img { width: 96px; height: 96px; object-fit: cover; border-radius: 8px; }
+.photo button { position: absolute; top: -6px; right: -6px; min-height: 0; width: 28px; height: 28px; padding: 0; border-radius: 50%; background: var(--rouge); color: #fff; border: 0; }
+.pastille { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 10px; background: #e3eef5; color: var(--bleu); margin-right: 4px; }
+.pastille.ok { background: #dff3e6; color: var(--vert); }
+.miniature { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; margin-right: 4px; }
+#toast { position: fixed; left: 14px; right: 14px; bottom: calc(18px + env(safe-area-inset-bottom)); background: #1c2a33; color: #fff; padding: 12px 14px; border-radius: 10px; z-index: 9; }
+.avert { background: #fff6e0; border-left: 4px solid #e0a000; padding: 10px 12px; border-radius: 6px; font-size: 14px; margin-bottom: 12px; }

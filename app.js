@@ -1,0 +1,210 @@
+// DUERP Terrain : saisie des situations de travail sur le terrain (photos + texte dicté), hors connexion.
+// Les données restent dans ce téléphone ; la fiche est envoyée à l'ordinateur sous forme de fichier .collecte.json.
+import { RISQUES } from './risques.js';
+
+const $ = (s) => document.querySelector(s);
+const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const uid = (p) => p + Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
+const aujourdhui = () => new Date().toISOString().slice(0, 10);
+const dateFr = (iso) => (iso ? new Date(iso).toLocaleDateString('fr-FR') : '');
+
+// ---------- stockage (IndexedDB)
+let bd;
+function ouvrirBd() {
+  return new Promise((ok, ko) => {
+    const r = indexedDB.open('duerp-terrain', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('visites', { keyPath: 'id' });
+    r.onsuccess = () => ok(r.result);
+    r.onerror = () => ko(r.error);
+  });
+}
+const tx = (mode, f) => new Promise((ok, ko) => { const t = bd.transaction('visites', mode); const q = f(t.objectStore('visites')); t.oncomplete = () => ok(q && q.result); t.onerror = () => ko(t.error); });
+const toutes = () => tx('readonly', (s) => s.getAll()).then((l) => (l || []).sort((a, b) => (b.date || '').localeCompare(a.date || '')));
+const lire = (id) => tx('readonly', (s) => s.get(id));
+const ecrire = (v) => tx('readwrite', (s) => s.put(v));
+const effacer = (id) => tx('readwrite', (s) => s.delete(id));
+
+// ---------- utilitaires
+function toast(m, ms = 2600) { const t = $('#toast'); t.textContent = m; t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => { t.hidden = true; }, ms); }
+async function compresser(fichier) {
+  const bmp = await createImageBitmap(fichier);
+  const k = Math.min(1, 1280 / Math.max(bmp.width, bmp.height));
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(bmp.width * k)); c.height = Math.max(1, Math.round(bmp.height * k));
+  c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+  if (bmp.close) bmp.close();
+  return c.toDataURL('image/jpeg', 0.72);
+}
+const nomFichier = (v) => `Collecte_${String(v.client || 'client').replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 40)}_${v.date}.collecte.json`;
+
+// ---------- vues
+let visite = null; // visite ouverte
+let fiche = null; // fiche en cours d'édition
+
+function entete(titre, retour) { $('#titre').textContent = titre; $('#retour').hidden = !retour; $('#retour').dataset.vers = retour || ''; }
+
+async function vueAccueil() {
+  entete('DUERP Terrain', '');
+  const l = await toutes();
+  $('#main').innerHTML = `
+  <div class="avert">Les données restent <b>uniquement sur ce téléphone</b> jusqu'à l'envoi de la fiche. Évitez de photographier des visages et de noter des noms de personnes.</div>
+  <button class="principal large" data-act="nouvelle-visite">+ Nouvelle visite</button>
+  <label class="bouton large" style="display:block;text-align:center;margin:0 0 14px;font-weight:400">Importer le contexte d'un dossier (.contexte.json)<input type="file" id="f-contexte" accept=".json,application/json" hidden></label>
+  ${l.length ? l.map((v) => `<div class="carte cliquable" data-act="ouvrir-visite" data-id="${v.id}"><b>${esc(v.client || 'Sans nom')}</b><div class="doux">${dateFr(v.date)}${v.lieu ? ' · ' + esc(v.lieu) : ''}</div><div>${v.situations.length} situation(s) ${v.envoyeeLe ? '<span class="pastille ok">envoyée</span>' : '<span class="pastille">à envoyer</span>'}</div></div>`).join('') : '<p class="doux">Aucune visite pour le moment.</p>'}`;
+}
+
+async function creerVisite(base = {}) {
+  const v = { id: uid('v'), client: base.client || '', periode: base.periode || '', date: aujourdhui(), lieu: '', uts: base.uts || [], situations: [], envoyeeLe: '' };
+  await ecrire(v); location.hash = '#v/' + v.id;
+}
+
+async function vueVisite(id) {
+  visite = await lire(id);
+  if (!visite) { location.hash = ''; return; }
+  entete(visite.client || 'Visite', '#');
+  $('#main').innerHTML = `
+  <div class="carte">
+    <label for="v-client" style="margin-top:0">Client / établissement</label><input id="v-client" data-champ="client" value="${esc(visite.client)}" autocomplete="off">
+    <div class="ligne"><div style="flex:1"><label for="v-date">Date</label><input id="v-date" data-champ="date" type="date" value="${esc(visite.date)}"></div><div style="flex:1"><label for="v-lieu">Lieu</label><input id="v-lieu" data-champ="lieu" value="${esc(visite.lieu)}" autocomplete="off"></div></div>
+    <p class="doux" style="margin-bottom:0">${visite.uts.length ? visite.uts.length + ' unité(s) de travail importée(s) du dossier' : "Pas de contexte importé : l'UT se saisit à la main."}</p>
+  </div>
+  <button class="principal large" data-act="nouvelle-fiche">+ Nouvelle situation (photo / dictée)</button>
+  ${visite.situations.map((s, i) => `<div class="carte cliquable" data-act="ouvrir-fiche" data-id="${s.id}">
+    <div class="ligne"><b>${i + 1}. ${esc(s.ut || 'UT non précisée')}</b><span class="espace"></span>${s.risque ? '<span class="pastille">' + esc(s.risque.replace(/^\d+\.\s*/, '').slice(0, 28)) + '</span>' : ''}</div>
+    <div class="doux" style="margin:4px 0">${esc((s.texte || '(sans texte)').slice(0, 140))}</div>
+    <div>${(s.photos || []).slice(0, 4).map((p) => `<img class="miniature" src="${p}" alt="">`).join('')}</div></div>`).join('')}
+  ${visite.situations.length ? '<button class="principal large" data-act="envoyer">Envoyer à l\'ordinateur</button>' : ''}
+  <button class="danger large" data-act="suppr-visite">Supprimer cette visite</button>`;
+}
+
+async function vueFiche(vid, sid) {
+  visite = await lire(vid);
+  fiche = visite && visite.situations.find((s) => s.id === sid);
+  if (!fiche) { location.hash = '#v/' + vid; return; }
+  entete('Situation', '#v/' + vid);
+  const utsOpt = visite.uts.length ? `<select id="f-ut" data-champ="utId"><option value="">— choisir l'UT —</option>${visite.uts.map((u) => `<option value="${esc(u.id)}" ${fiche.utId === u.id ? 'selected' : ''}>${esc(u.nom)}</option>`).join('')}</select>` : `<input id="f-ut" data-champ="ut" value="${esc(fiche.ut)}" placeholder="Ex. : Aide à domicile, Cuisine…" autocomplete="off">`;
+  $('#main').innerHTML = `
+  <div class="carte">
+    <label for="f-ut" style="margin-top:0">Unité de travail</label>${utsOpt}
+    <label for="f-texte">Situation observée</label>
+    <textarea id="f-texte" data-champ="texte" placeholder="Décrivez la situation : qui fait quoi, où, comment, ce qui peut causer un accident ou une atteinte à la santé…">${esc(fiche.texte)}</textarea>
+    <div class="ligne" style="margin-top:8px"><button data-act="dicter" id="b-dicter">🎤 Dicter</button><span class="doux espace" id="aide-dictee">Sinon, touchez le micro de votre clavier.</span></div>
+    <label>Photos</label>
+    <div class="photos" id="photos">${(fiche.photos || []).map((p, i) => `<div class="photo"><img src="${p}" alt="Photo ${i + 1}"><button data-act="suppr-photo" data-i="${i}" aria-label="Supprimer la photo">×</button></div>`).join('')}</div>
+    <label class="bouton principal" style="display:block;text-align:center;font-weight:400">📷 Prendre une photo<input type="file" id="f-photo" accept="image/*" capture="environment" hidden></label>
+    <label class="bouton" style="display:block;text-align:center;font-weight:400;margin-top:8px">🖼 Choisir dans la galerie<input type="file" id="f-galerie" accept="image/*" multiple hidden></label>
+    <label for="f-risque">Risque (facultatif)</label>
+    <select id="f-risque" data-champ="risque"><option value="">— laisser l'ordinateur proposer —</option>${RISQUES.map((r) => `<option ${fiche.risque === r ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select>
+  </div>
+  <button class="principal large" data-act="fiche-ok">Enregistrer et revenir</button>
+  <button class="danger large" data-act="suppr-fiche">Supprimer cette situation</button>`;
+}
+
+async function route() {
+  const h = location.hash.replace(/^#/, '');
+  const [k, a, b] = h.split('/');
+  if (k === 'v' && a && b) return vueFiche(a, b);
+  if (k === 'v' && a) return vueVisite(a);
+  return vueAccueil();
+}
+
+// ---------- actions
+let sauvegardeEnCours = 0;
+async function sauver() { if (visite) { sauvegardeEnCours++; try { await ecrire(visite); } finally { sauvegardeEnCours--; } } }
+
+const ACTIONS = {
+  'nouvelle-visite': () => creerVisite(),
+  'ouvrir-visite': (el) => { location.hash = '#v/' + el.dataset.id; },
+  'nouvelle-fiche': async () => {
+    const f = { id: uid('s'), ut: '', utId: '', texte: '', risque: '', photos: [], le: new Date().toISOString() };
+    visite.situations.push(f); await sauver(); location.hash = `#v/${visite.id}/${f.id}`;
+  },
+  'ouvrir-fiche': (el) => { location.hash = `#v/${visite.id}/${el.dataset.id}`; },
+  'fiche-ok': async () => { await sauver(); location.hash = '#v/' + visite.id; },
+  'suppr-fiche': async () => {
+    if (!confirm('Supprimer cette situation et ses photos ?')) return;
+    visite.situations = visite.situations.filter((s) => s.id !== fiche.id); await sauver(); location.hash = '#v/' + visite.id;
+  },
+  'suppr-photo': async (el) => { fiche.photos.splice(Number(el.dataset.i), 1); await sauver(); vueFiche(visite.id, fiche.id); },
+  'suppr-visite': async () => {
+    if (!confirm('Supprimer toute la visite (situations et photos) de ce téléphone ?')) return;
+    await effacer(visite.id); location.hash = '';
+  },
+  'envoyer': async () => {
+    const contenu = {
+      format: 'duerp-collecte', version: 1, cree: new Date().toISOString(), client: visite.client, periode: visite.periode,
+      visite: { date: visite.date, lieu: visite.lieu },
+      situations: visite.situations.map((s) => ({ id: s.id, ut: s.utId ? (visite.uts.find((u) => u.id === s.utId) || {}).nom || '' : s.ut, utId: s.utId || '', texte: s.texte, risque: s.risque, photos: s.photos, le: s.le })),
+    };
+    const nom = nomFichier(visite);
+    const fichier = new File([JSON.stringify(contenu)], nom, { type: 'application/json' });
+    try {
+      if (navigator.canShare && navigator.canShare({ files: [fichier] })) await navigator.share({ files: [fichier], title: nom });
+      else throw new Error('partage-indisponible');
+    } catch (e) {
+      if (e && e.name === 'AbortError') return; // partage annulé
+      const a = document.createElement('a'); a.href = URL.createObjectURL(fichier); a.download = nom; document.body.appendChild(a); a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 800);
+      toast('Fichier enregistré dans les Téléchargements.');
+    }
+    visite.envoyeeLe = new Date().toISOString(); await sauver();
+  },
+  'dicter': () => dicter(),
+};
+
+function dicter() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const aide = $('#aide-dictee'), bouton = $('#b-dicter');
+  if (!SR) { aide.textContent = 'Dictée indisponible ici : touchez le micro de votre clavier.'; return; }
+  if (dicter.r) { dicter.r.stop(); return; }
+  const r = new SR(); dicter.r = r; r.lang = 'fr-FR'; r.interimResults = false; r.continuous = true;
+  bouton.textContent = '⏹ Arrêter'; aide.textContent = 'Je vous écoute…';
+  r.onresult = (e) => {
+    const t = Array.from(e.results).slice(e.resultIndex).map((x) => x[0].transcript.trim()).join(' ');
+    const zone = $('#f-texte'); zone.value = (zone.value ? zone.value.replace(/\s*$/, ' ') : '') + t; fiche.texte = zone.value; sauver();
+  };
+  r.onerror = (e) => { aide.textContent = e.error === 'network' || e.error === 'service-not-allowed' ? 'Dictée sans connexion impossible ici : utilisez le micro du clavier.' : 'Dictée interrompue (' + e.error + ').'; };
+  r.onend = () => { dicter.r = null; const b = $('#b-dicter'); if (b) b.textContent = '🎤 Dicter'; };
+  try { r.start(); } catch { dicter.r = null; }
+}
+
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-act]');
+  if (el && ACTIONS[el.dataset.act]) { e.preventDefault(); ACTIONS[el.dataset.act](el); return; }
+  if (e.target.closest('#retour')) location.hash = $('#retour').dataset.vers || '';
+});
+let minuterie;
+document.addEventListener('input', (e) => {
+  const c = e.target.dataset && e.target.dataset.champ;
+  if (!c) return;
+  const cible = e.target.closest('#main') && fiche && $('#f-texte') ? fiche : visite;
+  if (!cible) return;
+  cible[c] = e.target.value;
+  if (c === 'utId' && fiche) fiche.ut = (visite.uts.find((u) => u.id === e.target.value) || {}).nom || '';
+  if (c === 'client') $('#titre').textContent = e.target.value || 'Visite';
+  clearTimeout(minuterie); minuterie = setTimeout(sauver, 350);
+});
+document.addEventListener('change', async (e) => {
+  if (e.target.id === 'f-photo' || e.target.id === 'f-galerie') {
+    const fichiers = Array.from(e.target.files || []); e.target.value = '';
+    for (const f of fichiers) { try { fiche.photos.push(await compresser(f)); } catch { toast("Photo illisible : essayez à nouveau."); } }
+    await sauver(); vueFiche(visite.id, fiche.id);
+  } else if (e.target.id === 'f-contexte') {
+    const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+    try {
+      const c = JSON.parse(await f.text());
+      if (c.format !== 'duerp-contexte') throw new Error('format');
+      await creerVisite({ client: c.client, periode: c.periode, uts: c.uts || [] });
+    } catch { toast("Ce fichier n'est pas un contexte DUERP Studio."); }
+  } else if (e.target.dataset && e.target.dataset.champ && e.target.tagName === 'SELECT') {
+    const c = e.target.dataset.champ; const cible = fiche && $('#f-texte') ? fiche : visite;
+    cible[c] = e.target.value; if (c === 'utId' && fiche) fiche.ut = (visite.uts.find((u) => u.id === e.target.value) || {}).nom || ''; sauver();
+  }
+});
+window.addEventListener('hashchange', () => { if (dicter.r) dicter.r.stop(); route(); });
+
+bd = await ouvrirBd();
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+window.__terrain = { etat: () => ({ visite, fiche }), toutes };
+route();
