@@ -1,4 +1,4 @@
-// DUERP Terrain : saisie des situations de travail sur le terrain (photos + texte dicté), hors connexion.
+// ZOT DUERP Terrain : saisie des situations de travail sur le terrain (photos + texte dicté), hors connexion.
 // Les données restent dans ce téléphone ; la fiche est envoyée à l'ordinateur sous forme de fichier .collecte.json.
 import { RISQUES } from './risques.js';
 
@@ -44,13 +44,14 @@ let fiche = null; // fiche en cours d'édition
 function entete(titre, retour) { $('#titre').textContent = titre; $('#retour').hidden = !retour; $('#retour').dataset.vers = retour || ''; }
 
 async function vueAccueil() {
-  entete('DUERP Terrain', '');
+  entete('ZOT DUERP Terrain', '');
   const l = await toutes();
   $('#main').innerHTML = `
   <div class="avert">Les données restent <b>uniquement sur ce téléphone</b> jusqu'à l'envoi de la fiche. Évitez de photographier des visages et de noter des noms de personnes.</div>
   <button class="principal large" data-act="nouvelle-visite">+ Nouvelle visite</button>
   <label class="bouton large" style="display:block;text-align:center;margin:0 0 14px;font-weight:400">Importer le contexte d'un dossier (.contexte.json)<input type="file" id="f-contexte" accept=".json,application/json" hidden></label>
-  ${l.length ? l.map((v) => `<div class="carte cliquable" data-act="ouvrir-visite" data-id="${v.id}"><b>${esc(v.client || 'Sans nom')}</b><div class="doux">${dateFr(v.date)}${v.lieu ? ' · ' + esc(v.lieu) : ''}</div><div>${v.situations.length} situation(s) ${v.envoyeeLe ? '<span class="pastille ok">envoyée</span>' : '<span class="pastille">à envoyer</span>'}</div></div>`).join('') : '<p class="doux">Aucune visite pour le moment.</p>'}`;
+  ${l.length ? l.map((v) => `<div class="carte cliquable" data-act="ouvrir-visite" data-id="${v.id}"><b>${esc(v.client || 'Sans nom')}</b><div class="doux">${dateFr(v.date)}${v.lieu ? ' · ' + esc(v.lieu) : ''}</div><div>${v.situations.length} situation(s) ${v.envoyeeLe ? '<span class="pastille ok">envoyée</span>' : '<span class="pastille">à envoyer</span>'}</div></div>`).join('') : '<p class="doux">Aucune visite pour le moment.</p>'}
+  <div class="signature">ZOT DUERP Terrain<br>Réalisé par <b>Florian ROBERT</b></div>`;
 }
 
 async function creerVisite(base = {}) {
@@ -68,6 +69,7 @@ async function vueVisite(id) {
     <div class="ligne"><div style="flex:1"><label for="v-date">Date</label><input id="v-date" data-champ="date" type="date" value="${esc(visite.date)}"></div><div style="flex:1"><label for="v-lieu">Lieu</label><input id="v-lieu" data-champ="lieu" value="${esc(visite.lieu)}" autocomplete="off"></div></div>
     <p class="doux" style="margin-bottom:0">${visite.uts.length ? visite.uts.length + ' unité(s) de travail importée(s) du dossier' : "Pas de contexte importé : l'UT se saisit à la main."}</p>
   </div>
+  ${visite.uts.length ? `<h2>Unités de travail (${visite.uts.length})</h2>${visite.uts.map((u) => { const obs = (u.lignes || []).filter((l) => (visite.observees || []).includes(l.id)).length; return `<div class="carte cliquable" data-act="ouvrir-ut" data-id="${esc(u.id)}"><b>${esc(u.nom)}</b><div class="doux">${u.effectif ? u.effectif + ' salarié(s) · ' : ''}${obs}/${(u.lignes || []).length} situation(s) préparée(s) observée(s)</div></div>`; }).join('')}` : ''}
   <button class="principal large" data-act="nouvelle-fiche">+ Nouvelle situation (photo / dictée)</button>
   ${visite.situations.map((s, i) => `<div class="carte cliquable" data-act="ouvrir-fiche" data-id="${s.id}">
     <div class="ligne"><b>${i + 1}. ${esc(s.ut || 'UT non précisée')}</b><span class="espace"></span>${s.risque ? '<span class="pastille">' + esc(s.risque.replace(/^\d+\.\s*/, '').slice(0, 28)) + '</span>' : ''}</div>
@@ -77,15 +79,37 @@ async function vueVisite(id) {
   <button class="danger large" data-act="suppr-visite">Supprimer cette visite</button>`;
 }
 
+async function vueUt(vid, uid_) {
+  visite = await lire(vid);
+  const u = visite && visite.uts.find((x) => x.id === uid_);
+  if (!u) { location.hash = '#v/' + vid; return; }
+  fiche = null;
+  entete(u.nom, '#v/' + vid);
+  const obs = visite.observees || [];
+  $('#main').innerHTML = `
+  <div class="carte">${u.effectif ? `<div><b>Effectif :</b> ${esc(u.effectif)}</div>` : ''}
+    <div><b>Activités :</b> ${esc(u.activites) || '<span class="doux">non renseignées</span>'}</div>
+    <div style="margin-top:6px"><b>Outils / équipements :</b> ${esc(u.outils) || '<span class="doux">non renseignés</span>'}</div></div>
+  <button class="principal large" data-act="nouvelle-fiche" data-ut="${esc(u.id)}">+ Nouvelle situation dans cette UT</button>
+  <h2>Situations préparées (${(u.lignes || []).length})</h2>
+  ${(u.lignes || []).length ? u.lignes.map((l) => { const n = visite.situations.filter((x) => x.ligneId === l.id).length; return `<div class="carte">
+    <div class="ligne"><b>${esc((l.risque || '').replace(/^\d+\.\s*/, ''))}</b></div>
+    <div class="doux" style="margin:4px 0;white-space:pre-wrap">${esc(l.situation || '(sans description)')}</div>
+    <label class="ligne" style="font-weight:400;margin:6px 0"><input type="checkbox" data-obs="${esc(l.id)}" ${obs.includes(l.id) ? 'checked' : ''} style="width:24px;height:24px"> Observée sur le terrain</label>
+    <button data-act="fiche-ligne" data-l="${esc(l.id)}" data-ut="${esc(u.id)}">📷 ${n ? 'Voir / compléter (' + n + ')' : 'Ajouter photo / précision'}</button></div>`; }).join('') : '<p class="doux">Aucune situation préparée pour cette UT.</p>'}`;
+}
+
 async function vueFiche(vid, sid) {
   visite = await lire(vid);
   fiche = visite && visite.situations.find((s) => s.id === sid);
   if (!fiche) { location.hash = '#v/' + vid; return; }
   entete('Situation', '#v/' + vid);
-  const utsOpt = visite.uts.length ? `<select id="f-ut" data-champ="utId"><option value="">— choisir l'UT —</option>${visite.uts.map((u) => `<option value="${esc(u.id)}" ${fiche.utId === u.id ? 'selected' : ''}>${esc(u.nom)}</option>`).join('')}</select>` : `<input id="f-ut" data-champ="ut" value="${esc(fiche.ut)}" placeholder="Ex. : Aide à domicile, Cuisine…" autocomplete="off">`;
+  const ligneRef = fiche.ligneId ? visite.uts.flatMap((u) => u.lignes || []).find((l) => l.id === fiche.ligneId) : null;
+  const utsOpt = visite.uts.length ? `<select id="f-ut" data-champ="utId"><option value="">— choisir l'UT —</option>${visite.uts.map((u) => `<option value="${esc(u.id)}" ${fiche.utId === u.id ? 'selected' : ''}>${esc(u.nom)}</option>`).join('')}<option value="__nouvelle__" ${fiche.nouvelleUt ? 'selected' : ''}>➕ Autre UT (nouvelle, à créer)</option></select>${fiche.nouvelleUt ? `<input id="f-ut-nom" data-champ="ut" value="${esc(fiche.ut)}" placeholder="Nom de la nouvelle UT" style="margin-top:8px" autocomplete="off">` : ''}` : `<input id="f-ut" data-champ="ut" value="${esc(fiche.ut)}" placeholder="Ex. : Aide à domicile, Cuisine…" autocomplete="off">`;
   $('#main').innerHTML = `
   <div class="carte">
-    <label for="f-ut" style="margin-top:0">Unité de travail</label>${utsOpt}
+    ${ligneRef ? `<div class="avert" style="margin-bottom:0">Complète la situation préparée : <b>${esc(ligneRef.situation || ligneRef.risque)}</b></div>` : ''}
+    <label for="f-ut" style="margin-top:12px">Unité de travail</label>${utsOpt}
     <label for="f-texte">Situation observée</label>
     <textarea id="f-texte" data-champ="texte" placeholder="Décrivez la situation : qui fait quoi, où, comment, ce qui peut causer un accident ou une atteinte à la santé…">${esc(fiche.texte)}</textarea>
     <div class="ligne" style="margin-top:8px"><button data-act="dicter" id="b-dicter">🎤 Dicter</button><span class="doux espace" id="aide-dictee">Sinon, touchez le micro de votre clavier.</span></div>
@@ -103,6 +127,8 @@ async function vueFiche(vid, sid) {
 async function route() {
   const h = location.hash.replace(/^#/, '');
   const [k, a, b] = h.split('/');
+  const c = h.split('/')[3];
+  if (k === 'v' && a && b === 'ut' && c) return vueUt(a, c);
   if (k === 'v' && a && b) return vueFiche(a, b);
   if (k === 'v' && a) return vueVisite(a);
   return vueAccueil();
@@ -115,9 +141,20 @@ async function sauver() { if (visite) { sauvegardeEnCours++; try { await ecrire(
 const ACTIONS = {
   'nouvelle-visite': () => creerVisite(),
   'ouvrir-visite': (el) => { location.hash = '#v/' + el.dataset.id; },
-  'nouvelle-fiche': async () => {
-    const f = { id: uid('s'), ut: '', utId: '', texte: '', risque: '', photos: [], le: new Date().toISOString() };
+  'ouvrir-ut': (el) => { location.hash = `#v/${visite.id}/ut/${el.dataset.id}`; },
+  'nouvelle-fiche': async (el) => {
+    const u = el && el.dataset && el.dataset.ut ? visite.uts.find((x) => x.id === el.dataset.ut) : null;
+    const f = { id: uid('s'), ut: u ? u.nom : '', utId: u ? u.id : '', texte: '', risque: '', photos: [], le: new Date().toISOString() };
     visite.situations.push(f); await sauver(); location.hash = `#v/${visite.id}/${f.id}`;
+  },
+  'fiche-ligne': async (el) => {
+    const u = visite.uts.find((x) => x.id === el.dataset.ut); const l = u && (u.lignes || []).find((x) => x.id === el.dataset.l);
+    let f = visite.situations.find((x) => x.ligneId === el.dataset.l);
+    if (!f) {
+      f = { id: uid('s'), ut: u ? u.nom : '', utId: u ? u.id : '', ligneId: el.dataset.l, texte: '', risque: (l && l.risque) || '', photos: [], le: new Date().toISOString() };
+      visite.situations.push(f); await sauver();
+    }
+    location.hash = `#v/${visite.id}/${f.id}`;
   },
   'ouvrir-fiche': (el) => { location.hash = `#v/${visite.id}/${el.dataset.id}`; },
   'fiche-ok': async () => { await sauver(); location.hash = '#v/' + visite.id; },
@@ -134,18 +171,24 @@ const ACTIONS = {
     const contenu = {
       format: 'duerp-collecte', version: 1, cree: new Date().toISOString(), client: visite.client, periode: visite.periode,
       visite: { date: visite.date, lieu: visite.lieu },
-      situations: visite.situations.map((s) => ({ id: s.id, ut: s.utId ? (visite.uts.find((u) => u.id === s.utId) || {}).nom || '' : s.ut, utId: s.utId || '', texte: s.texte, risque: s.risque, photos: s.photos, le: s.le })),
+      observees: visite.observees || [],
+      situations: visite.situations.map((s) => ({ id: s.id, ut: s.utId ? (visite.uts.find((u) => u.id === s.utId) || {}).nom || '' : s.ut, utId: s.utId || '', ligneId: s.ligneId || '', nouvelleUt: !!s.nouvelleUt, texte: s.texte, risque: s.risque, photos: s.photos, le: s.le })),
     };
     const nom = nomFichier(visite);
-    const fichier = new File([JSON.stringify(contenu)], nom, { type: 'application/json' });
-    try {
-      if (navigator.canShare && navigator.canShare({ files: [fichier] })) await navigator.share({ files: [fichier], title: nom });
-      else throw new Error('partage-indisponible');
-    } catch (e) {
-      if (e && e.name === 'AbortError') return; // partage annulé
+    const texte = JSON.stringify(contenu);
+    // Le partage Android refuse parfois le type « application/json » : on essaie aussi « text/plain », puis le téléchargement.
+    let partage = false;
+    for (const type of ['application/json', 'text/plain']) {
+      const fichier = new File([texte], nom, { type });
+      if (navigator.canShare && navigator.canShare({ files: [fichier] })) {
+        try { await navigator.share({ files: [fichier], title: nom }); partage = true; break; } catch (e) { if (e && e.name === 'AbortError') return; }
+      }
+    }
+    if (!partage) {
+      const fichier = new File([texte], nom, { type: 'application/json' });
       const a = document.createElement('a'); a.href = URL.createObjectURL(fichier); a.download = nom; document.body.appendChild(a); a.click();
       setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 800);
-      toast('Fichier enregistré dans les Téléchargements.');
+      toast('Fichier enregistré dans Téléchargements : ouvrez « Mes fichiers », appuyez longuement sur ' + nom + ' puis « Partager ».', 9000);
     }
     visite.envoyeeLe = new Date().toISOString(); await sauver();
   },
@@ -194,10 +237,17 @@ document.addEventListener('change', async (e) => {
     try {
       const c = JSON.parse(await f.text());
       if (c.format !== 'duerp-contexte') throw new Error('format');
-      await creerVisite({ client: c.client, periode: c.periode, uts: c.uts || [] });
-    } catch { toast("Ce fichier n'est pas un contexte DUERP Studio."); }
+      await creerVisite({ client: c.client, periode: c.periode, uts: (c.uts || []).map((u) => ({ ...u, lignes: u.lignes || [] })) });
+    } catch { toast("Ce fichier n'est pas un contexte ZOT DUERP."); }
+  } else if (e.target.dataset && e.target.dataset.obs) {
+    const id = e.target.dataset.obs; visite.observees = (visite.observees || []).filter((x) => x !== id);
+    if (e.target.checked) visite.observees.push(id);
+    sauver();
+  } else if (e.target.id === 'f-ut' && e.target.value === '__nouvelle__' && fiche) {
+    fiche.utId = ''; fiche.nouvelleUt = true; fiche.ut = fiche.ut || ''; await sauver(); vueFiche(visite.id, fiche.id);
   } else if (e.target.dataset && e.target.dataset.champ && e.target.tagName === 'SELECT') {
     const c = e.target.dataset.champ; const cible = fiche && $('#f-texte') ? fiche : visite;
+    if (c === 'utId' && fiche) fiche.nouvelleUt = false;
     cible[c] = e.target.value; if (c === 'utId' && fiche) fiche.ut = (visite.uts.find((u) => u.id === e.target.value) || {}).nom || ''; sauver();
   }
 });

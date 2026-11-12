@@ -1,7 +1,7 @@
 {
-  "name": "DUERP Terrain",
-  "short_name": "DUERP Terrain",
-  "description": "Collecte terrain pour DUERP Studio : photos et situations dictées, hors connexion.",
+  "name": "ZOT DUERP Terrain",
+  "short_name": "ZOT DUERP Terrain",
+  "description": "Collecte terrain pour ZOT DUERP : photos et situations dictées, hors connexion.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

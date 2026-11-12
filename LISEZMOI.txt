@@ -1,4 +1,4 @@
-DUERP Terrain — application du téléphone (à publier une seule fois)
+ZOT DUERP Terrain — application du téléphone (à publier une seule fois)
 =====================================================================
 Ce dossier contient uniquement le CODE de l'application : aucune donnée de client.
 Les visites, textes et photos restent dans le téléphone jusqu'à l'envoi de la fiche.
@@ -13,11 +13,11 @@ Publication gratuite avec GitHub Pages
 Installation sur le Samsung
 1. Ouvrir cette adresse dans Chrome, avec une connexion (une seule fois).
 2. Menu ⋮ > « Ajouter à l'écran d'accueil » (ou « Installer l'application »).
-3. Ouvrir DUERP Terrain une fois en ligne pour qu'il se mette en cache : il fonctionne ensuite sans connexion.
+3. Ouvrir ZOT DUERP Terrain une fois en ligne pour qu'il se mette en cache : il fonctionne ensuite sans connexion.
 
 Dictée : touchez le micro du clavier (Samsung / Gboard) ; télécharger le français hors connexion dans
 Réglages du clavier > Saisie vocale pour dicter sans réseau.
 
-Circuit : DUERP Studio > Collecte terrain > « Exporter le contexte » > envoyer le fichier sur le téléphone
-> l'importer dans DUERP Terrain (choix de l'UT) > sur le terrain : photos + dictée > « Envoyer à l'ordinateur »
-> DUERP Studio > Collecte terrain > « Importer une collecte ».
+Circuit : ZOT DUERP > Collecte terrain > « Exporter le contexte » > envoyer le fichier sur le téléphone
+> l'importer dans ZOT DUERP Terrain (choix de l'UT) > sur le terrain : photos + dictée > « Envoyer à l'ordinateur »
+> ZOT DUERP > Collecte terrain > « Importer une collecte ».
