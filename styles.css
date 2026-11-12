@@ -31,3 +31,5 @@ h2 { font-size: 16px; margin: 18px 0 8px; color: var(--gris); }
 
 .signature { text-align: center; color: var(--gris); font-size: 13px; margin: 28px 0 10px; }
 .signature b { color: #1c2a33; }
+[hidden] { display: none !important; }
+.mini { min-height: 0; padding: 4px 10px; font-size: 13px; width: auto; }

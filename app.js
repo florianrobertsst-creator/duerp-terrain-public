@@ -12,17 +12,25 @@ const dateFr = (iso) => (iso ? new Date(iso).toLocaleDateString('fr-FR') : '');
 let bd;
 function ouvrirBd() {
   return new Promise((ok, ko) => {
-    const r = indexedDB.open('duerp-terrain', 1);
-    r.onupgradeneeded = () => r.result.createObjectStore('visites', { keyPath: 'id' });
+    const r = indexedDB.open('duerp-terrain', 2);
+    r.onupgradeneeded = () => {
+      if (!r.result.objectStoreNames.contains('visites')) r.result.createObjectStore('visites', { keyPath: 'id' });
+      if (!r.result.objectStoreNames.contains('clients')) r.result.createObjectStore('clients', { keyPath: 'cle' });
+    };
     r.onsuccess = () => ok(r.result);
     r.onerror = () => ko(r.error);
   });
 }
-const tx = (mode, f) => new Promise((ok, ko) => { const t = bd.transaction('visites', mode); const q = f(t.objectStore('visites')); t.oncomplete = () => ok(q && q.result); t.onerror = () => ko(t.error); });
+const tx = (mode, f, magasin = 'visites') => new Promise((ok, ko) => { const t = bd.transaction(magasin, mode); const q = f(t.objectStore(magasin)); t.oncomplete = () => ok(q && q.result); t.onerror = () => ko(t.error); });
 const toutes = () => tx('readonly', (s) => s.getAll()).then((l) => (l || []).sort((a, b) => (b.date || '').localeCompare(a.date || '')));
 const lire = (id) => tx('readonly', (s) => s.get(id));
 const ecrire = (v) => tx('readwrite', (s) => s.put(v));
 const effacer = (id) => tx('readwrite', (s) => s.delete(id));
+const cleClient = (nom) => String(nom || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+const clients = () => tx('readonly', (s) => s.getAll(), 'clients').then((l) => (l || []).sort((a, b) => a.client.localeCompare(b.client, 'fr')));
+const ecrireClient = (c) => tx('readwrite', (s) => s.put(c), 'clients');
+const effacerClient = (cle) => tx('readwrite', (s) => s.delete(cle), 'clients');
+const contexteVersClient = (c) => ({ cle: cleClient(c.cle || c.client), client: c.client || '', periode: c.periode || '', uts: (c.uts || []).map((u) => ({ ...u, lignes: u.lignes || [] })), recuLe: new Date().toISOString() });
 
 // ---------- utilitaires
 function toast(m, ms = 2600) { const t = $('#toast'); t.textContent = m; t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => { t.hidden = true; }, ms); }
@@ -48,16 +56,20 @@ function entete(titre, retour) { $('#titre').textContent = titre; $('#retour').h
 async function vueAccueil() {
   entete('ZOT DUERP Terrain', '');
   const l = await toutes();
+  const cl = await clients();
   $('#main').innerHTML = `
   <div class="avert">Les données restent <b>uniquement sur ce téléphone</b> jusqu'à l'envoi de la fiche. Évitez de photographier des visages et de noter des noms de personnes.</div>
   <button class="principal large" data-act="nouvelle-visite">+ Nouvelle visite</button>
-  <label class="bouton large" style="display:block;text-align:center;margin:0 0 14px;font-weight:400">Importer le contexte d'un dossier (.contexte.json)<input type="file" id="f-contexte" accept=".json,application/json" hidden></label>
+  <label class="bouton large" style="display:block;text-align:center;margin:0 0 14px;font-weight:400">Importer mes clients ou un contexte (.json)<input type="file" id="f-contexte" accept=".json,application/json" hidden></label>
+  ${cl.length ? `<h2>Mes clients (${cl.length})</h2>${cl.length > 5 ? '<input id="c-filtre" type="search" placeholder="Rechercher un client…" autocomplete="off" style="margin-bottom:10px">' : ''}
+  <div id="liste-clients">${cl.map((c) => `<div class="carte cliquable carte-client" data-nom="${esc(cleClient(c.client))}" data-act="visite-client" data-cle="${esc(c.cle)}"><div class="ligne"><b>${esc(c.client)}</b><span class="espace"></span><button class="mini" data-act="retirer-client" data-cle="${esc(c.cle)}" aria-label="Retirer ce client du téléphone">Retirer</button></div><div class="doux">${esc(c.periode)}${c.periode ? ' · ' : ''}${c.uts.length} UT · toucher pour démarrer une visite</div></div>`).join('')}</div>` : ''}
+  ${l.length ? '<h2>Visites</h2>' : ''}
   ${l.length ? l.map((v) => `<div class="carte cliquable" data-act="ouvrir-visite" data-id="${v.id}"><b>${esc(v.client || 'Sans nom')}</b><div class="doux">${dateFr(v.date)}${v.lieu ? ' · ' + esc(v.lieu) : ''}</div><div>${v.situations.length} situation(s) ${v.envoyeeLe ? '<span class="pastille ok">envoyée</span>' : '<span class="pastille">à envoyer</span>'}</div></div>`).join('') : '<p class="doux">Aucune visite pour le moment.</p>'}
   <div class="signature">ZOT DUERP Terrain<br>Réalisé par <b>Florian ROBERT</b></div>`;
 }
 
 async function creerVisite(base = {}) {
-  const v = { id: uid('v'), client: base.client || '', periode: base.periode || '', date: aujourdhui(), lieu: '', uts: base.uts || [], situations: [], envoyeeLe: '' };
+  const v = { id: uid('v'), client: base.client || '', periode: base.periode || '', date: aujourdhui(), lieu: '', uts: JSON.parse(JSON.stringify(base.uts || [])), situations: [], envoyeeLe: '' };
   await ecrire(v); location.hash = '#v/' + v.id;
 }
 
@@ -124,7 +136,15 @@ async function vueFiche(vid, sid) {
     <label for="f-ut" style="margin-top:12px">Unité de travail</label>${utsOpt}
     <label for="f-texte">Situation observée</label>
     <textarea id="f-texte" data-champ="texte" placeholder="Décrivez la situation : qui fait quoi, où, comment, ce qui peut causer un accident ou une atteinte à la santé…">${esc(fiche.texte)}</textarea>
-    <div class="ligne" style="margin-top:8px"><button data-act="dicter" id="b-dicter">🎤 Dicter</button><span class="doux espace" id="aide-dictee">Sinon, touchez le micro de votre clavier.</span></div>
+    <div class="ligne" style="margin-top:8px"><button data-act="dicter" data-cible="texte" id="b-dicter">🎤 Dicter</button><span class="doux espace" id="aide-dictee">Sinon, touchez le micro de votre clavier.</span></div>
+    <label for="f-moyens">Moyens de prévention existants (facultatif)</label>
+    ${ligneRef && ligneRef.moyens ? `<div class="doux" style="margin-bottom:4px;white-space:pre-wrap">Déjà noté : ${esc(ligneRef.moyens)}</div>` : ''}
+    <textarea id="f-moyens" data-champ="moyens" style="min-height:80px" placeholder="Ce qui existe déjà : matériel, organisation, formation, consignes…">${esc(fiche.moyens)}</textarea>
+    <div class="ligne" style="margin-top:8px"><button data-act="dicter" data-cible="moyens" id="b-dicter-moyens">🎤 Dicter</button><span class="doux espace" id="aide-dictee-moyens"></span></div>
+    <label for="f-idees">Idées d'amélioration (facultatif)</label>
+    ${ligneRef && ligneRef.idees ? `<div class="doux" style="margin-bottom:4px;white-space:pre-wrap">Déjà noté : ${esc(ligneRef.idees)}</div>` : ''}
+    <textarea id="f-idees" data-champ="idees" style="min-height:80px" placeholder="Ce qui pourrait être mis en place pour réduire le risque…">${esc(fiche.idees)}</textarea>
+    <div class="ligne" style="margin-top:8px"><button data-act="dicter" data-cible="idees" id="b-dicter-idees">🎤 Dicter</button><span class="doux espace" id="aide-dictee-idees"></span></div>
     <label>Photos</label>
     <div class="photos" id="photos">${(fiche.photos || []).map((p, i) => `<div class="photo"><img src="${p}" alt="Photo ${i + 1}"><button data-act="suppr-photo" data-i="${i}" aria-label="Supprimer la photo">×</button></div>`).join('')}</div>
     <label class="bouton principal" style="display:block;text-align:center;font-weight:400">📷 Prendre une photo<input type="file" id="f-photo" accept="image/*" capture="environment" hidden></label>
@@ -152,6 +172,11 @@ async function sauver() { if (visite) { sauvegardeEnCours++; try { await ecrire(
 
 const ACTIONS = {
   'nouvelle-visite': () => creerVisite(),
+  'visite-client': async (el) => { const c = (await clients()).find((x) => x.cle === el.dataset.cle); if (c) creerVisite(c); },
+  'retirer-client': async (el) => {
+    if (!confirm('Retirer ce client de la liste du téléphone ? (Ses visites déjà créées sont conservées.)')) return;
+    await effacerClient(el.dataset.cle); vueAccueil();
+  },
   'ouvrir-visite': (el) => { location.hash = '#v/' + el.dataset.id; },
   'ut-form': () => { formUt = true; vueVisite(visite.id).then(() => { const i = $('#nu-nom'); if (i) i.focus(); }); },
   'ut-annuler': () => { formUt = false; vueVisite(visite.id); },
@@ -164,14 +189,14 @@ const ACTIONS = {
   'ouvrir-ut': (el) => { location.hash = `#v/${visite.id}/ut/${el.dataset.id}`; },
   'nouvelle-fiche': async (el) => {
     const u = el && el.dataset && el.dataset.ut ? visite.uts.find((x) => x.id === el.dataset.ut) : null;
-    const f = { id: uid('s'), ut: u ? u.nom : '', utId: u ? u.id : '', texte: '', risque: '', photos: [], le: new Date().toISOString() };
+    const f = { id: uid('s'), ut: u ? u.nom : '', utId: u ? u.id : '', texte: '', moyens: '', idees: '', risque: '', photos: [], le: new Date().toISOString() };
     visite.situations.push(f); await sauver(); location.hash = `#v/${visite.id}/${f.id}`;
   },
   'fiche-ligne': async (el) => {
     const u = visite.uts.find((x) => x.id === el.dataset.ut); const l = u && (u.lignes || []).find((x) => x.id === el.dataset.l);
     let f = visite.situations.find((x) => x.ligneId === el.dataset.l);
     if (!f) {
-      f = { id: uid('s'), ut: u ? u.nom : '', utId: u ? u.id : '', ligneId: el.dataset.l, texte: '', risque: (l && l.risque) || '', photos: [], le: new Date().toISOString() };
+      f = { id: uid('s'), ut: u ? u.nom : '', utId: u ? u.id : '', ligneId: el.dataset.l, texte: '', moyens: '', idees: '', risque: (l && l.risque) || '', photos: [], le: new Date().toISOString() };
       visite.situations.push(f); await sauver();
     }
     location.hash = `#v/${visite.id}/${f.id}`;
@@ -194,7 +219,7 @@ const ACTIONS = {
       visite: { date: visite.date, lieu: visite.lieu },
       observees: visite.observees || [],
       utsNouvelles: visite.uts.filter((u) => u.nouvelle).map((u) => ({ id: u.id, nom: u.nom, activites: u.activites || '', effectif: u.effectif || null })),
-      situations: visite.situations.map((s) => ({ id: s.id, ut: s.utId ? (visite.uts.find((u) => u.id === s.utId) || {}).nom || '' : s.ut, utId: s.utId || '', ligneId: s.ligneId || '', nouvelleUt: !!(visite.uts.find((u) => u.id === s.utId) || {}).nouvelle, texte: s.texte, risque: s.risque, photos: s.photos, le: s.le })),
+      situations: visite.situations.map((s) => ({ id: s.id, ut: s.utId ? (visite.uts.find((u) => u.id === s.utId) || {}).nom || '' : s.ut, utId: s.utId || '', ligneId: s.ligneId || '', nouvelleUt: !!(visite.uts.find((u) => u.id === s.utId) || {}).nouvelle, texte: s.texte, moyens: s.moyens || '', idees: s.idees || '', risque: s.risque, photos: s.photos, le: s.le })),
     };
     const nom = nomFichier(visite);
     const texte = JSON.stringify(contenu);
@@ -214,23 +239,24 @@ const ACTIONS = {
     }
     visite.envoyeeLe = new Date().toISOString(); await sauver();
   },
-  'dicter': () => dicter(),
+  'dicter': (el) => dicter((el && el.dataset && el.dataset.cible) || 'texte'),
 };
 
 function finDictee(msg) {
-  const r = dicter.r; dicter.r = null;
+  const r = dicter.r, cible = dicter.cible || 'texte'; dicter.r = null;
   clearTimeout(dicter.t);
   if (r) { r.onresult = r.onerror = r.onend = null; try { r.abort(); } catch { /* déjà arrêtée */ } }
-  const b = $('#b-dicter'), aide = $('#aide-dictee');
-  if (b) b.textContent = '🎤 Dicter';
+  document.querySelectorAll('[data-act="dicter"]').forEach((b) => { b.textContent = '🎤 Dicter'; });
+  const aide = $('#aide-dictee' + (cible === 'texte' ? '' : '-' + cible));
   if (aide && msg !== undefined) aide.textContent = msg;
 }
-function dicter() {
+function dicter(cible = 'texte') {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const aide = $('#aide-dictee'), bouton = $('#b-dicter');
+  const suffixe = cible === 'texte' ? '' : '-' + cible;
+  const aide = $('#aide-dictee' + suffixe), bouton = $('#b-dicter' + (cible === 'texte' ? '' : suffixe));
   if (!SR) { aide.textContent = 'Dictée indisponible ici : touchez le micro de votre clavier.'; return; }
   if (dicter.r) { finDictee('Dictée arrêtée.'); return; }
-  const r = new SR(); dicter.r = r;
+  const r = new SR(); dicter.r = r; dicter.cible = cible;
   r.lang = 'fr-FR'; r.interimResults = false; r.continuous = false; r.maxAlternatives = 1;
   bouton.textContent = '⏹ Arrêter'; aide.textContent = 'Parlez maintenant…';
   let recu = false;
@@ -238,8 +264,8 @@ function dicter() {
     const t = Array.from(e.results).map((x) => x[0].transcript.trim()).join(' ').trim();
     if (!t) return;
     recu = true;
-    const zone = $('#f-texte'); zone.value = (zone.value ? zone.value.replace(/\s*$/, ' ') : '') + t;
-    fiche.texte = zone.value; sauver();
+    const zone = $('#f-' + cible); zone.value = (zone.value ? zone.value.replace(/\s*$/, ' ') : '') + t;
+    fiche[cible] = zone.value; sauver();
     finDictee('Texte ajouté. Touchez « Dicter » pour continuer.');
   };
   r.onerror = (e) => {
@@ -277,6 +303,11 @@ document.addEventListener('input', (e) => {
   if (c === 'client') $('#titre').textContent = e.target.value || 'Visite';
   clearTimeout(minuterie); minuterie = setTimeout(sauver, 350);
 });
+document.addEventListener('input', (e) => {
+  if (e.target.id !== 'c-filtre') return;
+  const q = cleClient(e.target.value);
+  document.querySelectorAll('.carte-client').forEach((c) => { c.hidden = !!q && !c.dataset.nom.includes(q); });
+});
 document.addEventListener('change', async (e) => {
   if (e.target.id === 'f-photo' || e.target.id === 'f-galerie') {
     const fichiers = Array.from(e.target.files || []); e.target.value = '';
@@ -286,9 +317,15 @@ document.addEventListener('change', async (e) => {
     const f = e.target.files[0]; e.target.value = ''; if (!f) return;
     try {
       const c = JSON.parse(await f.text());
+      if (c.format === 'duerp-clients' && Array.isArray(c.clients)) {
+        let n = 0;
+        for (const x of c.clients) if (x && x.client) { await ecrireClient(contexteVersClient(x)); n++; }
+        toast(n + ' client(s) importé(s) sur le téléphone.', 3500); vueAccueil(); return;
+      }
       if (c.format !== 'duerp-contexte') throw new Error('format');
+      if (c.client) await ecrireClient(contexteVersClient(c));
       await creerVisite({ client: c.client, periode: c.periode, uts: (c.uts || []).map((u) => ({ ...u, lignes: u.lignes || [] })) });
-    } catch { toast("Ce fichier n'est pas un contexte ZOT DUERP."); }
+    } catch { toast("Ce fichier n'est pas un fichier ZOT DUERP (clients ou contexte).", 3500); }
   } else if (e.target.dataset && e.target.dataset.obs) {
     const id = e.target.dataset.obs; visite.observees = (visite.observees || []).filter((x) => x !== id);
     if (e.target.checked) visite.observees.push(id);
