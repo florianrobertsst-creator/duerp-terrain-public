@@ -111,6 +111,7 @@ async function vueUt(vid, uid_) {
 }
 
 async function vueFiche(vid, sid) {
+  finDictee();
   visite = await lire(vid);
   fiche = visite && visite.situations.find((s) => s.id === sid);
   if (!fiche) { location.hash = '#v/' + vid; return; }
@@ -216,20 +217,42 @@ const ACTIONS = {
   'dicter': () => dicter(),
 };
 
+function finDictee(msg) {
+  const r = dicter.r; dicter.r = null;
+  clearTimeout(dicter.t);
+  if (r) { r.onresult = r.onerror = r.onend = null; try { r.abort(); } catch { /* déjà arrêtée */ } }
+  const b = $('#b-dicter'), aide = $('#aide-dictee');
+  if (b) b.textContent = '🎤 Dicter';
+  if (aide && msg !== undefined) aide.textContent = msg;
+}
 function dicter() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const aide = $('#aide-dictee'), bouton = $('#b-dicter');
   if (!SR) { aide.textContent = 'Dictée indisponible ici : touchez le micro de votre clavier.'; return; }
-  if (dicter.r) { dicter.r.stop(); return; }
-  const r = new SR(); dicter.r = r; r.lang = 'fr-FR'; r.interimResults = false; r.continuous = true;
-  bouton.textContent = '⏹ Arrêter'; aide.textContent = 'Je vous écoute…';
+  if (dicter.r) { finDictee('Dictée arrêtée.'); return; }
+  const r = new SR(); dicter.r = r;
+  r.lang = 'fr-FR'; r.interimResults = false; r.continuous = false; r.maxAlternatives = 1;
+  bouton.textContent = '⏹ Arrêter'; aide.textContent = 'Parlez maintenant…';
+  let recu = false;
   r.onresult = (e) => {
-    const t = Array.from(e.results).slice(e.resultIndex).map((x) => x[0].transcript.trim()).join(' ');
-    const zone = $('#f-texte'); zone.value = (zone.value ? zone.value.replace(/\s*$/, ' ') : '') + t; fiche.texte = zone.value; sauver();
+    const t = Array.from(e.results).map((x) => x[0].transcript.trim()).join(' ').trim();
+    if (!t) return;
+    recu = true;
+    const zone = $('#f-texte'); zone.value = (zone.value ? zone.value.replace(/\s*$/, ' ') : '') + t;
+    fiche.texte = zone.value; sauver();
+    finDictee('Texte ajouté. Touchez « Dicter » pour continuer.');
   };
-  r.onerror = (e) => { aide.textContent = e.error === 'network' || e.error === 'service-not-allowed' ? 'Dictée sans connexion impossible ici : utilisez le micro du clavier.' : 'Dictée interrompue (' + e.error + ').'; };
-  r.onend = () => { dicter.r = null; const b = $('#b-dicter'); if (b) b.textContent = '🎤 Dicter'; };
-  try { r.start(); } catch { dicter.r = null; }
+  r.onerror = (e) => {
+    const m = { 'network': 'La dictée du navigateur demande Internet. Utilisez le micro de votre clavier (hors ligne).',
+      'service-not-allowed': 'Dictée refusée par le téléphone. Utilisez le micro du clavier.',
+      'not-allowed': 'Micro non autorisé : autorisez-le dans les réglages du site, ou utilisez le micro du clavier.',
+      'no-speech': 'Rien entendu. Réessayez, ou utilisez le micro du clavier.',
+      'audio-capture': 'Micro introuvable. Utilisez le micro du clavier.' };
+    finDictee(m[e.error] || 'Dictée impossible (' + e.error + '). Utilisez le micro du clavier.');
+  };
+  r.onend = () => { if (dicter.r === r) finDictee(recu ? 'Texte ajouté.' : 'Rien enregistré. Utilisez le micro du clavier si besoin.'); };
+  dicter.t = setTimeout(() => { if (dicter.r === r) finDictee('Temps écoulé. Utilisez le micro du clavier si besoin.'); }, 20000);
+  try { r.start(); } catch { finDictee('Dictée impossible. Utilisez le micro du clavier.'); }
 }
 
 document.addEventListener('click', (e) => {
@@ -275,7 +298,7 @@ document.addEventListener('change', async (e) => {
     cible[c] = e.target.value; if (c === 'utId' && fiche) fiche.ut = (visite.uts.find((u) => u.id === e.target.value) || {}).nom || ''; sauver();
   }
 });
-window.addEventListener('hashchange', () => { if (dicter.r) dicter.r.stop(); route(); });
+window.addEventListener('hashchange', () => { finDictee(); route(); });
 
 bd = await ouvrirBd();
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
