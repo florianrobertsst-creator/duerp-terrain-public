@@ -40,6 +40,8 @@ const nomFichier = (v) => `Collecte_${String(v.client || 'client').replace(/[\\/
 // ---------- vues
 let visite = null; // visite ouverte
 let fiche = null; // fiche en cours d'édition
+let utCourante = null; // UT affichée (pour l'édition des UT créées sur le téléphone)
+let formUt = false; // formulaire « Nouvelle UT » ouvert
 
 function entete(titre, retour) { $('#titre').textContent = titre; $('#retour').hidden = !retour; $('#retour').dataset.vers = retour || ''; }
 
@@ -67,12 +69,14 @@ async function vueVisite(id) {
   <div class="carte">
     <label for="v-client" style="margin-top:0">Client / établissement</label><input id="v-client" data-champ="client" value="${esc(visite.client)}" autocomplete="off">
     <div class="ligne"><div style="flex:1"><label for="v-date">Date</label><input id="v-date" data-champ="date" type="date" value="${esc(visite.date)}"></div><div style="flex:1"><label for="v-lieu">Lieu</label><input id="v-lieu" data-champ="lieu" value="${esc(visite.lieu)}" autocomplete="off"></div></div>
-    <p class="doux" style="margin-bottom:0">${visite.uts.length ? visite.uts.length + ' unité(s) de travail importée(s) du dossier' : "Pas de contexte importé : l'UT se saisit à la main."}</p>
+    <p class="doux" style="margin-bottom:0">Une visite se compose d'<b>unités de travail (UT)</b> ; chaque UT contient ses <b>situations de travail</b>.</p>
   </div>
-  ${visite.uts.length ? `<h2>Unités de travail (${visite.uts.length})</h2>${visite.uts.map((u) => { const obs = (u.lignes || []).filter((l) => (visite.observees || []).includes(l.id)).length; return `<div class="carte cliquable" data-act="ouvrir-ut" data-id="${esc(u.id)}"><b>${esc(u.nom)}</b><div class="doux">${u.effectif ? u.effectif + ' salarié(s) · ' : ''}${obs}/${(u.lignes || []).length} situation(s) préparée(s) observée(s)</div></div>`; }).join('')}` : ''}
-  <button class="principal large" data-act="nouvelle-fiche">+ Nouvelle situation (photo / dictée)</button>
+  <h2>Unités de travail (${visite.uts.length})</h2>
+  ${visite.uts.map((u) => { const n = visite.situations.filter((x) => x.utId === u.id).length; const prep = (u.lignes || []).length; const obs = (u.lignes || []).filter((l) => (visite.observees || []).includes(l.id)).length; return `<div class="carte cliquable" data-act="ouvrir-ut" data-id="${esc(u.id)}"><div class="ligne"><b>${esc(u.nom)}</b><span class="espace"></span>${u.nouvelle ? '<span class="pastille">créée sur le terrain</span>' : ''}</div><div class="doux">${u.effectif ? u.effectif + ' salarié(s) · ' : ''}${n} situation(s) saisie(s)${prep ? ' · ' + obs + '/' + prep + ' préparée(s) observée(s)' : ''}</div></div>`; }).join('') || '<p class="doux">Aucune UT : créez-en une ou importez le contexte d\'un dossier.</p>'}
+  ${formUt ? `<div class="carte"><label for="nu-nom" style="margin-top:0">Nom de la nouvelle UT</label><input id="nu-nom" placeholder="Ex. : Buanderie, Aide à domicile…" autocomplete="off"><div class="ligne" style="margin-top:10px"><button class="principal espace" data-act="creer-ut">Créer l'UT</button><button data-act="ut-annuler">Annuler</button></div></div>` : '<button class="principal large" data-act="ut-form">+ Nouvelle UT</button>'}
+  <h2>Situations saisies (${visite.situations.length})</h2>
   ${visite.situations.map((s, i) => `<div class="carte cliquable" data-act="ouvrir-fiche" data-id="${s.id}">
-    <div class="ligne"><b>${i + 1}. ${esc(s.ut || 'UT non précisée')}</b><span class="espace"></span>${s.risque ? '<span class="pastille">' + esc(s.risque.replace(/^\d+\.\s*/, '').slice(0, 28)) + '</span>' : ''}</div>
+    <div class="ligne"><b>${i + 1}. ${esc((visite.uts.find((u) => u.id === s.utId) || {}).nom || s.ut || 'UT non précisée')}</b><span class="espace"></span>${s.risque ? '<span class="pastille">' + esc(s.risque.replace(/^\d+\.\s*/, '').slice(0, 28)) + '</span>' : ''}</div>
     <div class="doux" style="margin:4px 0">${esc((s.texte || '(sans texte)').slice(0, 140))}</div>
     <div>${(s.photos || []).slice(0, 4).map((p) => `<img class="miniature" src="${p}" alt="">`).join('')}</div></div>`).join('')}
   ${visite.situations.length ? '<button class="principal large" data-act="envoyer">Envoyer à l\'ordinateur</button>' : ''}
@@ -83,29 +87,36 @@ async function vueUt(vid, uid_) {
   visite = await lire(vid);
   const u = visite && visite.uts.find((x) => x.id === uid_);
   if (!u) { location.hash = '#v/' + vid; return; }
-  fiche = null;
+  fiche = null; utCourante = u;
   entete(u.nom, '#v/' + vid);
   const obs = visite.observees || [];
+  const saisies = visite.situations.filter((x) => x.utId === u.id && !x.ligneId);
   $('#main').innerHTML = `
-  <div class="carte">${u.effectif ? `<div><b>Effectif :</b> ${esc(u.effectif)}</div>` : ''}
+  <div class="carte">${u.nouvelle
+    ? `<label for="u-nom" style="margin-top:0">Nom de l'UT</label><input id="u-nom" data-utchamp="nom" value="${esc(u.nom)}" autocomplete="off">
+       <label for="u-act">Activités (facultatif)</label><textarea id="u-act" data-utchamp="activites" style="min-height:90px" placeholder="Ce que font les salariés de cette UT…">${esc(u.activites)}</textarea>
+       <label for="u-eff">Effectif (facultatif)</label><input id="u-eff" data-utchamp="effectif" type="number" inputmode="numeric" value="${esc(u.effectif ?? '')}">`
+    : `${u.effectif ? `<div><b>Effectif :</b> ${esc(u.effectif)}</div>` : ''}
     <div><b>Activités :</b> ${esc(u.activites) || '<span class="doux">non renseignées</span>'}</div>
-    <div style="margin-top:6px"><b>Outils / équipements :</b> ${esc(u.outils) || '<span class="doux">non renseignés</span>'}</div></div>
-  <button class="principal large" data-act="nouvelle-fiche" data-ut="${esc(u.id)}">+ Nouvelle situation dans cette UT</button>
-  <h2>Situations préparées (${(u.lignes || []).length})</h2>
+    <div style="margin-top:6px"><b>Outils / équipements :</b> ${esc(u.outils) || '<span class="doux">non renseignés</span>'}</div>`}</div>
+  <button class="principal large" data-act="nouvelle-fiche" data-ut="${esc(u.id)}">+ Nouvelle situation de travail dans cette UT</button>
+  <h2>Situations saisies dans cette UT (${saisies.length})</h2>
+  ${saisies.map((x, i) => `<div class="carte cliquable" data-act="ouvrir-fiche" data-id="${x.id}"><div class="ligne"><b>${i + 1}.</b><span class="doux espace">${esc((x.texte || '(sans texte)').slice(0, 120))}</span>${x.risque ? '<span class="pastille">' + esc(x.risque.replace(/^\d+\.\s*/, '').slice(0, 24)) + '</span>' : ''}</div><div>${(x.photos || []).slice(0, 4).map((p) => `<img class="miniature" src="${p}" alt="">`).join('')}</div></div>`).join('') || '<p class="doux">Aucune situation saisie pour le moment.</p>'}
+  ${(u.lignes || []).length || !u.nouvelle ? `<h2>Situations préparées (${(u.lignes || []).length})</h2>` : ''}
   ${(u.lignes || []).length ? u.lignes.map((l) => { const n = visite.situations.filter((x) => x.ligneId === l.id).length; return `<div class="carte">
     <div class="ligne"><b>${esc((l.risque || '').replace(/^\d+\.\s*/, ''))}</b></div>
     <div class="doux" style="margin:4px 0;white-space:pre-wrap">${esc(l.situation || '(sans description)')}</div>
     <label class="ligne" style="font-weight:400;margin:6px 0"><input type="checkbox" data-obs="${esc(l.id)}" ${obs.includes(l.id) ? 'checked' : ''} style="width:24px;height:24px"> Observée sur le terrain</label>
-    <button data-act="fiche-ligne" data-l="${esc(l.id)}" data-ut="${esc(u.id)}">📷 ${n ? 'Voir / compléter (' + n + ')' : 'Ajouter photo / précision'}</button></div>`; }).join('') : '<p class="doux">Aucune situation préparée pour cette UT.</p>'}`;
+    <button data-act="fiche-ligne" data-l="${esc(l.id)}" data-ut="${esc(u.id)}">📷 ${n ? 'Voir / compléter (' + n + ')' : 'Ajouter photo / précision'}</button></div>`; }).join('') : (u.nouvelle ? '' : '<p class="doux">Aucune situation préparée pour cette UT.</p>')}`;
 }
 
 async function vueFiche(vid, sid) {
   visite = await lire(vid);
   fiche = visite && visite.situations.find((s) => s.id === sid);
   if (!fiche) { location.hash = '#v/' + vid; return; }
-  entete('Situation', '#v/' + vid);
+  entete('Situation', fiche.utId ? `#v/${vid}/ut/${fiche.utId}` : '#v/' + vid);
   const ligneRef = fiche.ligneId ? visite.uts.flatMap((u) => u.lignes || []).find((l) => l.id === fiche.ligneId) : null;
-  const utsOpt = visite.uts.length ? `<select id="f-ut" data-champ="utId"><option value="">— choisir l'UT —</option>${visite.uts.map((u) => `<option value="${esc(u.id)}" ${fiche.utId === u.id ? 'selected' : ''}>${esc(u.nom)}</option>`).join('')}<option value="__nouvelle__" ${fiche.nouvelleUt ? 'selected' : ''}>➕ Autre UT (nouvelle, à créer)</option></select>${fiche.nouvelleUt ? `<input id="f-ut-nom" data-champ="ut" value="${esc(fiche.ut)}" placeholder="Nom de la nouvelle UT" style="margin-top:8px" autocomplete="off">` : ''}` : `<input id="f-ut" data-champ="ut" value="${esc(fiche.ut)}" placeholder="Ex. : Aide à domicile, Cuisine…" autocomplete="off">`;
+  const utsOpt = visite.uts.length ? `<select id="f-ut" data-champ="utId"><option value="">— choisir l'UT —</option>${visite.uts.map((u) => `<option value="${esc(u.id)}" ${fiche.utId === u.id ? 'selected' : ''}>${esc(u.nom)}</option>`).join('')}</select>` : `<input id="f-ut" data-champ="ut" value="${esc(fiche.ut)}" placeholder="Unité de travail" autocomplete="off">`;
   $('#main').innerHTML = `
   <div class="carte">
     ${ligneRef ? `<div class="avert" style="margin-bottom:0">Complète la situation préparée : <b>${esc(ligneRef.situation || ligneRef.risque)}</b></div>` : ''}
@@ -141,6 +152,14 @@ async function sauver() { if (visite) { sauvegardeEnCours++; try { await ecrire(
 const ACTIONS = {
   'nouvelle-visite': () => creerVisite(),
   'ouvrir-visite': (el) => { location.hash = '#v/' + el.dataset.id; },
+  'ut-form': () => { formUt = true; vueVisite(visite.id).then(() => { const i = $('#nu-nom'); if (i) i.focus(); }); },
+  'ut-annuler': () => { formUt = false; vueVisite(visite.id); },
+  'creer-ut': async () => {
+    const nom = ($('#nu-nom').value || '').trim();
+    if (!nom) { toast("Donnez un nom à l'UT."); return; }
+    const u = { id: uid('ut'), nom, effectif: null, activites: '', outils: '', lignes: [], nouvelle: true };
+    visite.uts.push(u); formUt = false; await sauver(); location.hash = `#v/${visite.id}/ut/${u.id}`;
+  },
   'ouvrir-ut': (el) => { location.hash = `#v/${visite.id}/ut/${el.dataset.id}`; },
   'nouvelle-fiche': async (el) => {
     const u = el && el.dataset && el.dataset.ut ? visite.uts.find((x) => x.id === el.dataset.ut) : null;
@@ -157,10 +176,11 @@ const ACTIONS = {
     location.hash = `#v/${visite.id}/${f.id}`;
   },
   'ouvrir-fiche': (el) => { location.hash = `#v/${visite.id}/${el.dataset.id}`; },
-  'fiche-ok': async () => { await sauver(); location.hash = '#v/' + visite.id; },
+  'fiche-ok': async () => { await sauver(); location.hash = fiche && fiche.utId ? `#v/${visite.id}/ut/${fiche.utId}` : '#v/' + visite.id; },
   'suppr-fiche': async () => {
     if (!confirm('Supprimer cette situation et ses photos ?')) return;
-    visite.situations = visite.situations.filter((s) => s.id !== fiche.id); await sauver(); location.hash = '#v/' + visite.id;
+    const retour = fiche.utId ? `#v/${visite.id}/ut/${fiche.utId}` : '#v/' + visite.id;
+    visite.situations = visite.situations.filter((s) => s.id !== fiche.id); await sauver(); location.hash = retour;
   },
   'suppr-photo': async (el) => { fiche.photos.splice(Number(el.dataset.i), 1); await sauver(); vueFiche(visite.id, fiche.id); },
   'suppr-visite': async () => {
@@ -172,7 +192,8 @@ const ACTIONS = {
       format: 'duerp-collecte', version: 1, cree: new Date().toISOString(), client: visite.client, periode: visite.periode,
       visite: { date: visite.date, lieu: visite.lieu },
       observees: visite.observees || [],
-      situations: visite.situations.map((s) => ({ id: s.id, ut: s.utId ? (visite.uts.find((u) => u.id === s.utId) || {}).nom || '' : s.ut, utId: s.utId || '', ligneId: s.ligneId || '', nouvelleUt: !!s.nouvelleUt, texte: s.texte, risque: s.risque, photos: s.photos, le: s.le })),
+      utsNouvelles: visite.uts.filter((u) => u.nouvelle).map((u) => ({ id: u.id, nom: u.nom, activites: u.activites || '', effectif: u.effectif || null })),
+      situations: visite.situations.map((s) => ({ id: s.id, ut: s.utId ? (visite.uts.find((u) => u.id === s.utId) || {}).nom || '' : s.ut, utId: s.utId || '', ligneId: s.ligneId || '', nouvelleUt: !!(visite.uts.find((u) => u.id === s.utId) || {}).nouvelle, texte: s.texte, risque: s.risque, photos: s.photos, le: s.le })),
     };
     const nom = nomFichier(visite);
     const texte = JSON.stringify(contenu);
@@ -218,6 +239,12 @@ document.addEventListener('click', (e) => {
 });
 let minuterie;
 document.addEventListener('input', (e) => {
+  if (e.target.dataset && e.target.dataset.utchamp && utCourante) {
+    const k = e.target.dataset.utchamp;
+    utCourante[k] = k === 'effectif' ? (Number(e.target.value) || null) : e.target.value;
+    if (k === 'nom') $('#titre').textContent = e.target.value || 'UT';
+    clearTimeout(minuterie); minuterie = setTimeout(sauver, 350); return;
+  }
   const c = e.target.dataset && e.target.dataset.champ;
   if (!c) return;
   const cible = e.target.closest('#main') && fiche && $('#f-texte') ? fiche : visite;
@@ -243,11 +270,8 @@ document.addEventListener('change', async (e) => {
     const id = e.target.dataset.obs; visite.observees = (visite.observees || []).filter((x) => x !== id);
     if (e.target.checked) visite.observees.push(id);
     sauver();
-  } else if (e.target.id === 'f-ut' && e.target.value === '__nouvelle__' && fiche) {
-    fiche.utId = ''; fiche.nouvelleUt = true; fiche.ut = fiche.ut || ''; await sauver(); vueFiche(visite.id, fiche.id);
   } else if (e.target.dataset && e.target.dataset.champ && e.target.tagName === 'SELECT') {
     const c = e.target.dataset.champ; const cible = fiche && $('#f-texte') ? fiche : visite;
-    if (c === 'utId' && fiche) fiche.nouvelleUt = false;
     cible[c] = e.target.value; if (c === 'utId' && fiche) fiche.ut = (visite.uts.find((u) => u.id === e.target.value) || {}).nom || ''; sauver();
   }
 });
