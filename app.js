@@ -60,7 +60,7 @@ async function vueAccueil() {
   $('#main').innerHTML = `
   <div class="avert">Les données restent <b>uniquement sur ce téléphone</b> jusqu'à l'envoi de la fiche. Évitez de photographier des visages et de noter des noms de personnes.</div>
   <button class="principal large" data-act="nouvelle-visite">+ Nouvelle visite</button>
-  <label class="bouton large" style="display:block;text-align:center;margin:0 0 14px;font-weight:400">Importer mes clients ou un contexte (.json)<input type="file" id="f-contexte" accept=".json,application/json" hidden></label>
+  <label class="bouton large" style="display:block;text-align:center;margin:0 0 14px;font-weight:400">Importer mes clients ou un contexte (.json)<input type="file" id="f-contexte" accept=".json,.txt,application/json,text/plain" hidden></label>
   ${cl.length ? `<h2>Mes clients (${cl.length})</h2>${cl.length > 5 ? '<input id="c-filtre" type="search" placeholder="Rechercher un client…" autocomplete="off" style="margin-bottom:10px">' : ''}
   <div id="liste-clients">${cl.map((c) => `<div class="carte cliquable carte-client" data-nom="${esc(cleClient(c.client))}" data-act="visite-client" data-cle="${esc(c.cle)}"><div class="ligne"><b>${esc(c.client)}</b><span class="espace"></span><button class="mini" data-act="retirer-client" data-cle="${esc(c.cle)}" aria-label="Retirer ce client du téléphone">Retirer</button></div><div class="doux">${esc(c.periode)}${c.periode ? ' · ' : ''}${c.uts.length} UT · toucher pour démarrer une visite</div></div>`).join('')}</div>` : ''}
   ${l.length ? '<h2>Visites</h2>' : ''}
@@ -224,11 +224,12 @@ const ACTIONS = {
     const nom = nomFichier(visite);
     const texte = JSON.stringify(contenu);
     // Le partage Android refuse parfois le type « application/json » : on essaie aussi « text/plain », puis le téléchargement.
+    // Chrome Android n'accepte de partager que certains types : on envoie d'abord un fichier .txt (accepté partout), lu aussi par le logiciel.
     let partage = false;
-    for (const type of ['application/json', 'text/plain']) {
-      const fichier = new File([texte], nom, { type });
+    for (const [type, n] of [['text/plain', nom.replace(/\.json$/, '.txt')], ['application/json', nom]]) {
+      const fichier = new File([texte], n, { type });
       if (navigator.canShare && navigator.canShare({ files: [fichier] })) {
-        try { await navigator.share({ files: [fichier], title: nom }); partage = true; break; } catch (e) { if (e && e.name === 'AbortError') return; }
+        try { await navigator.share({ files: [fichier], title: n }); partage = true; break; } catch (e) { if (e && e.name === 'AbortError') return; }
       }
     }
     if (!partage) {
