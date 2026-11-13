@@ -65,7 +65,7 @@ async function vueAccueil() {
   <div id="liste-clients">${cl.map((c) => `<div class="carte cliquable carte-client" data-nom="${esc(cleClient(c.client))}" data-act="visite-client" data-cle="${esc(c.cle)}"><div class="ligne"><b>${esc(c.client)}</b><span class="espace"></span><button class="mini" data-act="retirer-client" data-cle="${esc(c.cle)}" aria-label="Retirer ce client du téléphone">Retirer</button></div><div class="doux">${esc(c.periode)}${c.periode ? ' · ' : ''}${c.uts.length} UT · toucher pour démarrer une visite</div></div>`).join('')}</div>` : ''}
   ${l.length ? '<h2>Visites</h2>' : ''}
   ${l.length ? l.map((v) => `<div class="carte cliquable" data-act="ouvrir-visite" data-id="${v.id}"><b>${esc(v.client || 'Sans nom')}</b><div class="doux">${dateFr(v.date)}${v.lieu ? ' · ' + esc(v.lieu) : ''}</div><div>${v.situations.length} situation(s) ${v.envoyeeLe ? '<span class="pastille ok">envoyée</span>' : '<span class="pastille">à envoyer</span>'}</div></div>`).join('') : '<p class="doux">Aucune visite pour le moment.</p>'}
-  <div class="signature">ZOT DUERP Terrain<br>Réalisé par <b>Florian ROBERT</b></div>`;
+  <div class="signature">ZOT DUERP Terrain<br>Réalisé par <b>Florian ROBERT</b><br>pour répondre à <b>ZOT</b> besoin</div>`;
 }
 
 async function creerVisite(base = {}) {
